@@ -24,8 +24,8 @@ namespace ScSharingClient
         {
             InitializeComponent();
             InitializeControls();
-            this.WindowState = FormWindowState.Maximized;  // Thêm dòng này để phóng to cửa sổ
-            this.Text = "Client";  // Đặt tên cửa sổ là "Client"
+            this.WindowState = FormWindowState.Maximized;
+            this.Text = "Client";
         }
 
         void InitializeControls()
@@ -64,9 +64,12 @@ namespace ScSharingClient
         private void ConnectButton_Click(object sender, EventArgs e)
         {
             Connect();
-            connectButton.Enabled = false;
-            disconnectButton.Enabled = true;
-            statusLabel.Text = "Status: Connected";
+            if (isConnected)
+            {
+                connectButton.Enabled = false;
+                disconnectButton.Enabled = true;
+                statusLabel.Text = "Status: Connected";
+            }
         }
 
         private void DisconnectButton_Click(object sender, EventArgs e)
@@ -79,22 +82,94 @@ namespace ScSharingClient
 
         void Connect()
         {
-            IP = new IPEndPoint(IPAddress.Parse("192.168.1.241"), 9999);
+            IP = new IPEndPoint(IPAddress.Parse("192.168.1.34"), 9999);
             client = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 
             try
             {
                 client.Connect(IP);
+
+                // Hiện form nhập mật khẩu
+                string password = ShowPasswordDialog();
+                if (string.IsNullOrEmpty(password))
+                {
+                    Disconnect();
+                    statusLabel.Text = "Status: Connection Cancelled";
+                    return;
+                }
+
+                // Gửi mật khẩu đến server
+                byte[] passwordData = System.Text.Encoding.UTF8.GetBytes(password);
+                client.Send(passwordData);
+
+                // Đợi 1 chút để server xử lý mật khẩu
+                Thread.Sleep(500);
+
+                // Kiểm tra xem kết nối còn tồn tại không
+                if (!client.Connected)
+                {
+                    statusLabel.Text = "Status: Wrong Password";
+                    return;
+                }
+
                 isConnected = true;
                 imgSendThread = new Thread(SendImages);
                 imgSendThread.IsBackground = true;
                 imgSendThread.Start();
+                statusLabel.Text = "Status: Connected";
             }
             catch
             {
                 statusLabel.Text = "Status: Failed to Connect";
                 isConnected = false;
             }
+        }
+
+        private string ShowPasswordDialog()
+        {
+            Form prompt = new Form()
+            {
+                Width = 300,
+                Height = 150,
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                Text = "Enter Password",
+                StartPosition = FormStartPosition.CenterScreen
+            };
+
+            TextBox textBox = new TextBox()
+            {
+                Left = 50,
+                Top = 20,
+                Width = 200,
+                PasswordChar = '*'
+            };
+
+            Button confirmation = new Button()
+            {
+                Text = "OK",
+                Left = 50,
+                Width = 100,
+                Top = 50,
+                DialogResult = DialogResult.OK
+            };
+
+            Button cancel = new Button()
+            {
+                Text = "Cancel",
+                Left = 150,
+                Width = 100,
+                Top = 50,
+                DialogResult = DialogResult.Cancel
+            };
+
+            prompt.Controls.Add(textBox);
+            prompt.Controls.Add(confirmation);
+            prompt.Controls.Add(cancel);
+
+            prompt.AcceptButton = confirmation;
+            prompt.CancelButton = cancel;
+
+            return prompt.ShowDialog() == DialogResult.OK ? textBox.Text : "";
         }
 
         void Disconnect()

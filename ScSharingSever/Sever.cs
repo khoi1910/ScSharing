@@ -19,6 +19,7 @@ namespace ScSharingSever
         private Socket server;
         private Socket client;
         private bool isConnected = false;
+        private const string CORRECT_PASSWORD = "123456"; // Mật khẩu được định nghĩa cố định
 
         public Sever()
         {
@@ -65,7 +66,7 @@ namespace ScSharingSever
         private void Sever_Resize(object sender, EventArgs e)
         {
             // Cập nhật kích thước của PictureBox khi cửa sổ thay đổi kích thước
-            pictureBox1.Size = new Size(this.ClientSize.Width, this.ClientSize.Height - 50); // Trừ 50px để dành không gian cho các nút
+            pictureBox1.Size = new Size(this.ClientSize.Width, this.ClientSize.Height - 50);
         }
 
         private void ConnectButton_Click(object sender, EventArgs e)
@@ -128,7 +129,7 @@ namespace ScSharingSever
                     isConnected = true;
 
                     // Cập nhật trạng thái kết nối
-                    this.Invoke((MethodInvoker)(() => statusLabel.Text = "Trạng thái: Kết nối thành công"));
+                    this.Invoke((MethodInvoker)(() => statusLabel.Text = "Trạng thái: Đang xác thực..."));
 
                     Thread receiveThread = new Thread(ReceiveDataFromClient);
                     receiveThread.IsBackground = true;
@@ -145,30 +146,64 @@ namespace ScSharingSever
         {
             Socket clientSocket = obj as Socket;
 
-            while (isConnected)
+            try
             {
-                try
+                // Đầu tiên, nhận mật khẩu từ client
+                byte[] passwordBuffer = new byte[1024];
+                int passwordBytes = clientSocket.Receive(passwordBuffer);
+                string receivedPassword = System.Text.Encoding.UTF8.GetString(passwordBuffer, 0, passwordBytes);
+
+                if (receivedPassword != CORRECT_PASSWORD)
                 {
-                    byte[] data = new byte[1024 * 5000];
-                    int byteRead = clientSocket.Receive(data);
-
-                    if (byteRead > 0)
+                    this.Invoke((MethodInvoker)(() =>
                     {
-                        using (MemoryStream ms = new MemoryStream(data, 0, byteRead))
-                        {
-                            Image img = Image.FromStream(ms);
+                        statusLabel.Text = "Trạng thái: Mật khẩu không đúng";
+                        MessageBox.Show("Mật khẩu không đúng!");
+                    }));
+                    clientSocket.Close();
+                    isConnected = false;
+                    return;
+                }
 
-                            // Cập nhật hình ảnh trong PictureBox
-                            pictureBox1.Invoke((MethodInvoker)(() => pictureBox1.Image = img));
+                this.Invoke((MethodInvoker)(() => statusLabel.Text = "Trạng thái: Xác thực thành công"));
+
+                // Tiếp tục nhận dữ liệu màn hình
+                while (isConnected)
+                {
+                    try
+                    {
+                        byte[] data = new byte[1024 * 5000];
+                        int byteRead = clientSocket.Receive(data);
+
+                        if (byteRead > 0)
+                        {
+                            using (MemoryStream ms = new MemoryStream(data, 0, byteRead))
+                            {
+                                Image img = Image.FromStream(ms);
+                                pictureBox1.Invoke((MethodInvoker)(() => pictureBox1.Image = img));
+                            }
                         }
                     }
+                    catch (Exception ex)
+                    {
+                        isConnected = false;
+                        this.Invoke((MethodInvoker)(() =>
+                        {
+                            statusLabel.Text = "Trạng thái: Lỗi kết nối";
+                            MessageBox.Show("Error receiving data: " + ex.Message);
+                        }));
+                        break;
+                    }
                 }
-                catch (Exception ex)
+            }
+            catch (Exception ex)
+            {
+                isConnected = false;
+                this.Invoke((MethodInvoker)(() =>
                 {
-                    isConnected = false;
-                    MessageBox.Show("Error receiving data: " + ex.Message);
-                    break;
-                }
+                    statusLabel.Text = "Trạng thái: Lỗi xác thực";
+                    MessageBox.Show("Error in authentication: " + ex.Message);
+                }));
             }
         }
     }
