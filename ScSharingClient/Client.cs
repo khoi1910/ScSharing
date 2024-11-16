@@ -20,6 +20,10 @@ namespace ScSharingClient
         bool isConnected = false;
         Thread imgSendThread;
 
+        Button shareScreenButton;
+        Thread imgReceiveThread;
+        private Form screenShareForm; // Tham chiếu đến cửa sổ "Screen Share"
+
         public Client()
         {
             InitializeComponent();
@@ -41,7 +45,7 @@ namespace ScSharingClient
             this.Controls.Add(connectButton);
 
             // Nút Disconnect
-            disconnectButton = new Button
+            disconnectButton = new Button  
             {
                 Text = "Disconnect",
                 Location = new Point(120, 10),
@@ -50,6 +54,17 @@ namespace ScSharingClient
             };
             disconnectButton.Click += DisconnectButton_Click;
             this.Controls.Add(disconnectButton);
+
+            // Nút Chia sẻ màn hình
+            shareScreenButton = new Button
+            {
+                Text = "Chia sẻ màn hình",
+                Location = new Point(230, 10),
+                Size = new Size(150, 30),
+                Enabled = false
+            };
+            shareScreenButton.Click += ShareScreenButton_Click;
+            this.Controls.Add(shareScreenButton);
 
             // Label trạng thái
             statusLabel = new Label
@@ -80,9 +95,20 @@ namespace ScSharingClient
             statusLabel.Text = "Status: Disconnected";
         }
 
+        private void ShareScreenButton_Click(object sender, EventArgs e)
+        {
+            if (isConnected)
+            {
+                imgSendThread = new Thread(SendImages);
+                imgSendThread.IsBackground = true;
+                imgSendThread.Start();
+                shareScreenButton.Enabled = false; // Vô hiệu hóa nút khi đang chia sẻ
+            }
+        }
+
         void Connect()
         {
-            IP = new IPEndPoint(IPAddress.Parse("192.168.1.34"), 9999);
+            IP = new IPEndPoint(IPAddress.Parse("172.21.3.227"), 9999); // IP của client đang làm host
             client = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 
             try
@@ -113,10 +139,12 @@ namespace ScSharingClient
                 }
 
                 isConnected = true;
-                imgSendThread = new Thread(SendImages);
-                imgSendThread.IsBackground = true;
-                imgSendThread.Start();
+                // Bắt đầu nhận hình ảnh từ server
+                imgReceiveThread = new Thread(ReceiveImages);
+                imgReceiveThread.IsBackground = true;
+                imgReceiveThread.Start();
                 statusLabel.Text = "Status: Connected";
+                shareScreenButton.Enabled = true; // Kích hoạt nút chia sẻ màn hình
             }
             catch
             {
@@ -208,7 +236,61 @@ namespace ScSharingClient
                 {
                     byte[] screenData = CaptureScreen();
                     client.Send(screenData);
-                    Thread.Sleep(100);
+                    Thread.Sleep(100); //thời gian giữa mỗi lần gửi dữ liệu ảnh (1000 = 1 giây tương đương với 1 fps)
+                }
+                catch
+                {
+                    isConnected = false;
+                    statusLabel.Invoke((MethodInvoker)(() => statusLabel.Text = "Status: Connection Lost"));
+                    break;
+                }
+            }
+        }
+
+        private void ReceiveImages()
+        {
+            while (isConnected)
+            {
+                try
+                {
+                    byte[] data = new byte[1024 * 5000];
+                    int byteRead = client.Receive(data);
+
+                    if (byteRead > 0)
+                    {
+                        using (MemoryStream ms = new MemoryStream(data, 0, byteRead))
+                        {
+                            Image img = Image.FromStream(ms);
+                            // Hiển thị hình ảnh nhận được
+                            this.Invoke((MethodInvoker)(() =>
+                            {
+                                // Kiểm tra xem cửa sổ "Screen Share" đã mở chưa
+                                if (screenShareForm == null || screenShareForm.IsDisposed)
+                                {
+                                    // Tạo PictureBox mới để hiển thị hình ảnh
+                                    PictureBox pictureBox = new PictureBox
+                                    {
+                                        SizeMode = PictureBoxSizeMode.Zoom,
+                                        Dock = DockStyle.Fill,
+                                        Image = img
+                                    };
+                                    screenShareForm = new Form
+                                    {
+                                        Text = "Screen Share",
+                                        Size = new Size(800, 600)
+                                    };
+                                    screenShareForm.Controls.Add(pictureBox);
+                                    screenShareForm.Show();
+                                }
+                                else
+                                {
+                                    // Nếu cửa sổ đã mở, chỉ cần cập nhật hình ảnh
+                                    PictureBox pictureBox = (PictureBox)screenShareForm.Controls[0];
+                                    pictureBox.Image = img;
+                                }
+                            }));
+                        }
+                    }
                 }
                 catch
                 {

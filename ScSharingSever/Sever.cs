@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Net;
@@ -20,6 +21,7 @@ namespace ScSharingSever
         private Socket client;
         private bool isConnected = false;
         private const string CORRECT_PASSWORD = "123456"; // Mật khẩu được định nghĩa cố định
+        private List<Socket> clients = new List<Socket>(); // Danh sách các client kết nối
 
         public Sever()
         {
@@ -122,18 +124,18 @@ namespace ScSharingSever
         {
             try
             {
-                server.Listen(1);
+                server.Listen(10); // Cho phép nhiều client kết nối
                 while (true)
                 {
-                    client = server.Accept();
-                    isConnected = true;
+                    Socket clientSocket = server.Accept();
+                    clients.Add(clientSocket); // Thêm client vào danh sách
 
-                    // Cập nhật trạng thái kết nối
+                    isConnected = true;
                     this.Invoke((MethodInvoker)(() => statusLabel.Text = "Trạng thái: Đang xác thực..."));
 
                     Thread receiveThread = new Thread(ReceiveDataFromClient);
                     receiveThread.IsBackground = true;
-                    receiveThread.Start(client);
+                    receiveThread.Start(clientSocket);
                 }
             }
             catch (Exception ex)
@@ -177,6 +179,15 @@ namespace ScSharingSever
 
                         if (byteRead > 0)
                         {
+                            // Gửi lại dữ liệu cho tất cả các client khác
+                            foreach (var c in clients)
+                            {
+                                if (c != clientSocket) // Không gửi lại cho client đang chia sẻ
+                                {
+                                    c.Send(data, byteRead, SocketFlags.None);
+                                }
+                            }
+
                             using (MemoryStream ms = new MemoryStream(data, 0, byteRead))
                             {
                                 Image img = Image.FromStream(ms);
@@ -187,6 +198,7 @@ namespace ScSharingSever
                     catch (Exception ex)
                     {
                         isConnected = false;
+                        // Xử lý lỗi như trước
                         this.Invoke((MethodInvoker)(() =>
                         {
                             statusLabel.Text = "Trạng thái: Lỗi kết nối";
@@ -195,6 +207,7 @@ namespace ScSharingSever
                         break;
                     }
                 }
+
             }
             catch (Exception ex)
             {
